@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { useVoiceRecognition } from '../hooks/useVoice';
+import { useRealtimeVoice } from '../hooks/useRealtimeVoice';
+import { ApiKeyModal } from './ApiKeyModal';
 import type { Message } from '../types';
 
 // Generate simple session ID (in real app, use UUID library)
@@ -13,11 +15,38 @@ export function ChatInterface() {
   const [currentResponse, setCurrentResponse] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<Array<{id: string, name: string, size: number}>>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKey, setApiKey] = useState<string>('');
 
   const { connected, sendMessage, lastMessage } = useWebSocket(SESSION_ID);
   const { isRecording, transcript, isSupported, toggleRecording, clearTranscript } = useVoiceRecognition();
+  const { isInCall, startCall, endCall } = useRealtimeVoice({
+    apiKey,
+    onTranscript: (text) => {
+      console.log('AI transcript:', text);
+    },
+    onError: (error) => {
+      alert(error.message);
+    }
+  });
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load API key from localStorage on mount
+  useEffect(() => {
+    const savedKey = localStorage.getItem('OPENAI_API_KEY');
+    if (savedKey) {
+      setApiKey(savedKey);
+    }
+  }, []);
+
+  const handleStartCall = () => {
+    if (!apiKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    startCall();
+  };
 
   // Handle incoming WebSocket messages
   useEffect(() => {
@@ -307,19 +336,37 @@ export function ChatInterface() {
             </button>
           )}
 
-          {/* Send Button */}
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || !connected}
-            className="p-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-          </button>
-        </div>
+          {/* Voice Call Button (Realtime) */}
+          {isInCall ? (
+            <button
+              onClick={endCall}
+              className="p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 animate-pulse"
+              title="End call"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={handleStartCall}
+              className="p-3 bg-green-500 text-white rounded-lg hover:bg-green-600"
+              title="Start realtime voice call"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
+      </div>
+
+      <ApiKeyModal
+        isOpen={showApiKeyModal}
+        onSave={setApiKey}
+        onClose={() => setShowApiKeyModal(false)}
+      />
     </div>
   );
 }

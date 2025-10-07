@@ -18,6 +18,7 @@ from .schemas import (
     WebSocketResponse
 )
 from .services.openai_service import stream_chat_response, build_message_history
+from .realtime_relay import relay_to_openai
 
 # Initialize FastAPI app
 app = FastAPI(title="Voice Chat Agent API", version="1.0.0")
@@ -252,6 +253,21 @@ def get_conversation_messages(conversation_id: str, db: Session = Depends(get_db
     ).order_by(Message.created_at).all()
 
     return messages
+
+
+# OpenAI Realtime API relay endpoint
+@app.websocket("/ws/realtime")
+async def realtime_websocket(websocket: WebSocket):
+    """WebSocket relay for OpenAI Realtime API."""
+    print("📞 ENDPOINT HIT!")
+    await websocket.accept()
+    print("✅ WEBSOCKET ACCEPTED!")
+    try:
+        await relay_to_openai(websocket)
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 # Health check endpoint
