@@ -1,0 +1,374 @@
+openapi: 3.0.3
+info:
+  title: Voice Chat Agent API
+  version: 1.0.0
+  description: |
+    Real-time chat interface with voice input and file attachments.
+    Uses WebSocket for chat messaging and REST for file operations.
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+
+paths:
+  /api/upload:
+    post:
+      summary: Upload a file attachment
+      description: |
+        Upload a file to be attached to a message. Returns file metadata.
+        File must be under 25MB and of a supported type.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The file to upload
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileUploadResponse'
+        '400':
+          description: Invalid request (unsupported file type)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "Unsupported file type: application/exe"
+        '413':
+          description: File too large (>25MB)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "File size exceeds 25MB limit"
+
+  /api/conversations:
+    get:
+      summary: List all conversations for a session
+      parameters:
+        - name: session_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Browser session ID (anonymous user tracking)
+      responses:
+        '200':
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Conversation'
+
+  /api/conversations/{conversation_id}/messages:
+    get:
+      summary: Get all messages in a conversation
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of messages with attachments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    FileUploadResponse:
+      type: object
+      required:
+        - file_id
+        - filename
+        - size
+        - mime_type
+      properties:
+        file_id:
+          type: string
+          format: uuid
+          description: Unique identifier for the uploaded file
+        filename:
+          type: string
+          description: Original filename
+        size:
+          type: integer
+          description: File size in bytes
+        mime_type:
+          type: string
+          description: MIME type of the file
+      example:
+        file_id: "550e8400-e29b-41d4-a716-446655440000"
+        filename: "document.pdf"
+        size: 1048576
+        mime_type: "application/pdf"
+
+    Conversation:
+      type: object
+      required:
+        - id
+        - session_id
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+        title:
+          type: string
+          nullable: true
+          description: Preview of first message (max 100 chars)
+        created_at:
+          type: string
+          format: date-time
+      example:
+        id: "123e4567-e89b-12d3-a456-426614174000"
+        session_id: "browser-session-abc123"
+        title: "How do I implement WebSockets?"
+        created_at: "2025-10-06T10:30:00Z"
+
+    Message:
+      type: object
+      required:
+        - id
+        - conversation_id
+        - role
+        - content
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        conversation_id:
+          type: string
+          format: uuid
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          description: Message text content
+        metadata:
+          type: object
+          nullable: true
+          properties:
+            voice:
+              type: boolean
+              description: Was this message created via voice input?
+            file_refs:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: IDs of attached files
+        attachments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attachment'
+        created_at:
+          type: string
+          format: date-time
+      example:
+        id: "550e8400-e29b-41d4-a716-446655440000"
+        conversation_id: "123e4567-e89b-12d3-a456-426614174000"
+        role: "user"
+        content: "What's in this image?"
+        metadata:
+          voice: false
+          file_refs: ["7c9e6679-7425-40de-944b-e07fc1f90ae7"]
+        attachments:
+          - id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+            filename: "photo.jpg"
+            file_size: 204800
+            mime_type: "image/jpeg"
+        created_at: "2025-10-06T10:31:00Z"
+
+    Attachment:
+      type: object
+      required:
+        - id
+        - filename
+        - file_size
+        - mime_type
+      properties:
+        id:
+          type: string
+          format: uuid
+        filename:
+          type: string
+        file_size:
+          type: integer
+          description: Size in bytes
+        mime_type:
+          type: string
+      example:
+        id: "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+        filename: "document.pdf"
+        file_size: 1048576
+        mime_type: "application/pdf"
+
+    Error:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Error message
+      example:
+        detail: "File size exceeds 25MB limit"
+
+# WebSocket Protocol (not part of OpenAPI spec, documented separately)
+x-websocket:
+  url: ws://localhost:8000/ws/{session_id}
+  description: |
+    Real-time bidirectional communication for chat messages.
+
+  client-to-server-messages:
+    - name: message
+      description: Send a user message to the AI
+      schema:
+        type: object
+        required:
+          - type
+          - content
+        properties:
+          type:
+            type: string
+            enum: [message]
+          content:
+            type: string
+            description: User's message text
+          metadata:
+            type: object
+            properties:
+              voice:
+                type: boolean
+                default: false
+              attachments:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+                description: File IDs from /api/upload
+      example:
+        type: "message"
+        content: "Explain how WebSockets work"
+        metadata:
+          voice: false
+          attachments: []
+
+    - name: stop_generation
+      description: Request to stop AI response generation mid-stream
+      schema:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            enum: [stop_generation]
+      example:
+        type: "stop_generation"
+
+  server-to-client-messages:
+    - name: response_chunk
+      description: Partial AI response (streaming)
+      schema:
+        type: object
+        required:
+          - type
+          - content
+          - done
+        properties:
+          type:
+            type: string
+            enum: [response_chunk]
+          content:
+            type: string
+            description: Partial response text
+          done:
+            type: boolean
+            description: false for chunks, true for final chunk
+      example:
+        type: "response_chunk"
+        content: "WebSockets provide "
+        done: false
+
+    - name: response_complete
+      description: AI response finished
+      schema:
+        type: object
+        required:
+          - type
+          - message_id
+        properties:
+          type:
+            type: string
+            enum: [response_complete]
+          message_id:
+            type: string
+            format: uuid
+            description: ID of the saved assistant message
+      example:
+        type: "response_complete"
+        message_id: "550e8400-e29b-41d4-a716-446655440000"
+
+    - name: error
+      description: Error occurred during processing
+      schema:
+        type: object
+        required:
+          - type
+          - message
+        properties:
+          type:
+            type: string
+            enum: [error]
+          message:
+            type: string
+            description: Error description
+      example:
+        type: "error"
+        message: "OpenAI API rate limit exceeded"
+
+    - name: connection_ack
+      description: Connection established successfully
+      schema:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            enum: [connection_ack]
+          session_id:
+            type: string
+      example:
+        type: "connection_ack"
+        session_id: "browser-session-abc123"
